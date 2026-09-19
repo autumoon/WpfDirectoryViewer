@@ -1,0 +1,9 @@
+# Build results
+bin/
+obj/
+publish/
+*.user
+
+# VS
+.vs/
+*.suo
