@@ -32,11 +32,31 @@ public partial class MainWindow : WPF.Window
         _configuration = Configuration.Load();
         
         // 设置从配置中读取的值
-        _currentDirectoryPath = _configuration.CurrentDirectoryPath;
-        CurrentPathTextBlock.Text = _currentDirectoryPath;
+        // 当前目录：仅当路径有效时才填入并加载
+        var savedCurrent = _configuration.CurrentDirectoryPath;
+        if (!string.IsNullOrWhiteSpace(savedCurrent) && Directory.Exists(savedCurrent))
+        {
+            _currentDirectoryPath = savedCurrent;
+            CurrentPathTextBlock.Text = _currentDirectoryPath;
+        }
+        else
+        {
+            _currentDirectoryPath = string.Empty;
+            CurrentPathTextBlock.Text = string.Empty;
+        }
         
-        _outputDirectoryPath = _configuration.OutputDirectoryPath;
-        OutputPathTextBlock.Text = _outputDirectoryPath;
+        // 输出目录：仅当路径有效时才填入
+        var savedOutput = _configuration.OutputDirectoryPath;
+        if (!string.IsNullOrWhiteSpace(savedOutput) && Directory.Exists(savedOutput))
+        {
+            _outputDirectoryPath = savedOutput;
+            OutputPathTextBlock.Text = _outputDirectoryPath;
+        }
+        else
+        {
+            _outputDirectoryPath = string.Empty;
+            OutputPathTextBlock.Text = string.Empty;
+        }
         
         // 设置导出格式复选框状态
         ExportTxtCheckBox.IsChecked = _configuration.ExportTxt;
@@ -199,7 +219,10 @@ public partial class MainWindow : WPF.Window
                     _outputDirectoryPath = parentDirectory;
                     OutputPathTextBlock.Text = _outputDirectoryPath;
                     
-                    LoadDirectoryStructure(_currentDirectoryPath);
+if (!string.IsNullOrEmpty(_currentDirectoryPath))
+        {
+            LoadDirectoryStructure(_currentDirectoryPath);
+        }
                 }
                 else
                 {
@@ -280,14 +303,28 @@ public partial class MainWindow : WPF.Window
                 if (exportMd)
                 {
                     string mdFilePath = Path.Combine(_outputDirectoryPath, $"{directoryName}.md");
-                    ExportToMarkdown(rootItem, mdFilePath, showFileSize, showLastModified);
+                    if (exportAsPathList)
+                    {
+                        ExportToMarkdownPathList(rootItem, mdFilePath, showFileSize, showLastModified);
+                    }
+                    else
+                    {
+                        ExportToMarkdown(rootItem, mdFilePath, showFileSize, showLastModified);
+                    }
                     exportedFiles.Add(mdFilePath);
                 }
                 
                 if (exportHtml)
                 {
                     string htmlFilePath = Path.Combine(_outputDirectoryPath, $"{directoryName}.html");
-                    ExportToHtml(rootItem, htmlFilePath, showFileSize, showLastModified);
+                    if (exportAsPathList)
+                    {
+                        ExportToHtmlPathList(rootItem, htmlFilePath, showFileSize, showLastModified);
+                    }
+                    else
+                    {
+                        ExportToHtml(rootItem, htmlFilePath, showFileSize, showLastModified);
+                    }
                     exportedFiles.Add(htmlFilePath);
                 }
                 
@@ -496,6 +533,97 @@ public partial class MainWindow : WPF.Window
                     GenerateHtmlStructure(sb, child, level + 1, showFileSize, showLastModified);
                 }
                 sb.AppendLine($"</div>");
+            }
+        }
+
+    private void ExportToHtmlPathList(DirectoryItem rootItem, string filePath, bool showFileSize, bool showLastModified)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("<!DOCTYPE html>");
+                sb.AppendLine("<html>");
+                sb.AppendLine("<head>");
+                sb.AppendLine("<meta charset='utf-8'>");
+                sb.AppendLine("<title>目录结构 - " + rootItem.Name + "</title>");
+                sb.AppendLine("<style>");
+                sb.AppendLine("body { font-family: Arial, sans-serif; margin: 20px; }");
+                sb.AppendLine(".folder { color: #0066cc; font-weight: bold; }");
+                sb.AppendLine(".file { color: #333; }");
+                sb.AppendLine("</style>");
+                sb.AppendLine("</head>");
+                sb.AppendLine("<body>");
+                sb.AppendLine("<h1>目录结构: " + rootItem.FullPath + "</h1>");
+                
+                // 生成完整路径格式的目录结构HTML（根目录本身不输出）
+                GenerateHtmlPathList(sb, rootItem, true, showFileSize, showLastModified);
+                
+                sb.AppendLine("</body>");
+                sb.AppendLine("</html>");
+                
+                // 确保目录存在
+                string directory = Path.GetDirectoryName(filePath) ?? string.Empty;
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                    Console.WriteLine($"创建目录: {directory}");
+                }
+                
+                File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
+                Console.WriteLine($"ExportToHtmlPathList: 成功写入文件 {filePath}");
+            } 
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ExportToHtmlPathList: 写入文件 {filePath} 时发生错误: {ex.Message}");
+                throw; // 重新抛出异常，让上层处理
+            }
+        }
+
+    private void GenerateHtmlPathList(StringBuilder sb, DirectoryItem item, bool isRoot, bool showFileSize, bool showLastModified)
+        {
+            // 根目录本身不输出（第一行由 ExportToHtmlPathList 输出）
+            if (!isRoot)
+            {
+                string cssClass = item.IsDirectory ? "folder" : "file";
+                string icon = item.IsDirectory ? "📁" : "📄";
+                
+                // 构建附加信息（文件大小和修改时间）——与 GenerateHtmlStructure 一致
+                string additionalInfo = string.Empty;
+                if (item.LastModified > DateTime.MinValue && showLastModified)
+                {
+                    string modifyTime = item.LastModified.ToString("yyyy-MM-dd HH:mm:ss");
+                    if (item.IsDirectory)
+                    {
+                        additionalInfo = $" <span style='color: #666; font-size: 0.8em;'>(修改时间: {modifyTime})</span>";
+                    }
+                    else if (showFileSize)
+                    {
+                        string fileSize = FormatFileSize(item.FileSize);
+                        additionalInfo = $" <span style='color: #666; font-size: 0.8em;'>({fileSize}, 修改时间: {modifyTime})</span>";
+                    }
+                    else
+                    {
+                        additionalInfo = $" <span style='color: #666; font-size: 0.8em;'>(修改时间: {modifyTime})</span>";
+                    }
+                }
+                else if (!item.IsDirectory && showFileSize && item.FileSize > 0)
+                {
+                    string fileSize = FormatFileSize(item.FileSize);
+                    additionalInfo = $" <span style='color: #666; font-size: 0.8em;'>({fileSize})</span>";
+                }
+                
+                // 目录以 "/" 结尾，输出项完整绝对路径，不使用缩进嵌套
+                string displayName = item.IsDirectory ? item.FullPath + "/" : item.FullPath;
+                sb.AppendLine($"<div class='{cssClass}'>{icon} {displayName}{additionalInfo}</div>");
+            }
+            
+            // 递归处理子项
+            if (item.IsDirectory && item.Children != null)
+            {
+                foreach (var child in item.Children)
+                {
+                    GenerateHtmlPathList(sb, child, false, showFileSize, showLastModified);
+                }
             }
         }
 
@@ -744,6 +872,78 @@ public partial class MainWindow : WPF.Window
                 foreach (var child in item.Children)
                 {
                     GenerateMarkdownStructure(sb, child, level + 1, showFileSize, showLastModified);
+                }
+            }
+        }
+
+    private void ExportToMarkdownPathList(DirectoryItem rootItem, string filePath, bool showFileSize, bool showLastModified)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("# 目录结构: " + rootItem.FullPath);
+                sb.AppendLine();
+                
+                // 生成完整路径格式的目录结构Markdown（根目录本身不输出）
+                GenerateMarkdownPathList(sb, rootItem, true, showFileSize, showLastModified);
+                
+                // 确保目录存在
+                string directory = Path.GetDirectoryName(filePath) ?? string.Empty;
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                    Console.WriteLine($"创建目录: {directory}");
+                }
+                
+                File.WriteAllText(filePath, sb.ToString(), Encoding.UTF8);
+                Console.WriteLine($"ExportToMarkdownPathList: 成功写入文件 {filePath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ExportToMarkdownPathList: 写入文件 {filePath} 时发生错误: {ex.Message}");
+                throw; // 重新抛出异常，让上层处理
+            }
+        }
+
+    private void GenerateMarkdownPathList(StringBuilder sb, DirectoryItem item, bool isRoot, bool showFileSize, bool showLastModified)
+        {
+            // 根目录本身不输出（标题由 ExportToMarkdownPathList 输出）
+            if (!isRoot)
+            {
+                string prefix = item.IsDirectory ? "📁 " : "📄 ";
+                
+                // 构建附加信息（文件大小和修改时间）——与 GenerateMarkdownStructure 一致
+                string additionalInfo = string.Empty;
+                if (item.LastModified > DateTime.MinValue && showLastModified)
+                {
+                    string modifyTime = item.LastModified.ToString("yyyy-MM-dd HH:mm:ss");
+                    if (!item.IsDirectory && showFileSize)
+                    {
+                        string fileSize = FormatFileSize(item.FileSize);
+                        additionalInfo = $"  ({fileSize}, {modifyTime})";
+                    }
+                    else
+                    {
+                        additionalInfo = $"  ({modifyTime})";
+                    }
+                }
+                else if (!item.IsDirectory && showFileSize && item.FileSize > 0)
+                {
+                    string fileSize = FormatFileSize(item.FileSize);
+                    additionalInfo = $"  ({fileSize})";
+                }
+                
+                // 目录以 "/" 结尾，输出项完整绝对路径，无缩进
+                string displayName = item.IsDirectory ? item.FullPath + "/" : item.FullPath;
+                sb.AppendLine($"- {prefix}{displayName}{additionalInfo}");
+            }
+            
+            // 递归处理子项
+            if (item.IsDirectory && item.Children != null)
+            {
+                foreach (var child in item.Children)
+                {
+                    GenerateMarkdownPathList(sb, child, false, showFileSize, showLastModified);
                 }
             }
         }
